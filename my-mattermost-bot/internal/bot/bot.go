@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -39,45 +40,58 @@ func (b *Bot) HandleCommand(msg, userID string) error {
 
 	b.myLogger.Info(fmt.Sprintf("%s. Получена команда. Message: %s. User: %s", op, msg, userID))
 
-	msg = strings.TrimSpace(msg)
-	if !strings.HasPrefix(msg, "vote") {
-		return nil
+	if msg == "help" {
+		return b.SendHelp()
 	}
 
+	msg = strings.TrimSpace(msg)
+
 	parts := strings.Fields(msg)
+	command := parts[0]
 	lenParts := len(parts)
 
 	if lenParts < 2 {
 		return b.SendHelp()
 	}
 
-	switch parts[1] {
+	switch command {
 	case "create":
-		return b.handleCreateVote(parts[2:], userID)
+		re := regexp.MustCompile(`"([^"]*)"`)
+		matches := re.FindAllStringSubmatch(msg, -1)
+
+		var question string
+		var options []string
+
+		if len(matches) > 0 {
+			question = matches[0][1]
+		}
+
+		for i := 1; i < len(matches); i++ {
+			options = append(options, matches[i][1])
+		}
+		return b.handleCreateVote(question, options, userID)
 	case "vote":
-		return b.handleVote(parts[2:], userID)
+		return b.handleVote(parts[1:])
 	case "results":
-		return b.handleResults(parts[2:])
+		return b.handleResults(parts[1:])
 	case "close":
-		return b.handleCloseVote(parts[2:], userID)
+		return b.handleCloseVote(parts[1:], userID)
 	case "delete":
-		return b.handleDeleteVote(parts[2:], userID)
+		return b.handleDeleteVote(parts[1:], userID)
 	default:
-		return b.handleVoteForOption(parts[1:], userID)
+		return b.SendHelp()
 	}
 }
 
-func (b *Bot) handleCreateVote(parts []string, userID string) error {
+func (b *Bot) handleCreateVote(question string, options []string, userID string) error {
 	const op = "bot.handleCreateVote"
 
 	b.myLogger.Info(fmt.Sprintf("%s. Начало создание опроса.", op))
 
-	if len(parts) < 2 {
-		return b.SendMessage(`Для создания голосования укажите вопрос и варианты ответов.\nПример: /vote create \"Ваш вопрос\" \"Вариант 1\" \"Вариант 2\"`)
+	if question == "" || len(options) == 0 {
+		return b.SendMessage("Для создания голосования укажите вопрос и варианты ответов.\nПример: @system-bot create \"Вопрос\" \"Вариант 1\" \"Вариант 2\" ...")
 	}
 
-	question := parts[0]
-	options := parts[1:]
 	voteID := uuid.New().String()
 
 	err := b.Storage.CreateVoting(voteID, question, userID, options)
@@ -90,7 +104,7 @@ func (b *Bot) handleCreateVote(parts []string, userID string) error {
 	for i, option := range options {
 		message += fmt.Sprintf("%d. %s\n", i+1, option)
 	}
-	message += fmt.Sprintf("\nДля голосования: `/vote %s <номер варианта>`", voteID)
+	message += fmt.Sprintf("\nДля голосования: `@system-bot vote %s <номер варианта>`", voteID)
 
 	b.myLogger.Info("Голосование успешно создано")
 
@@ -98,34 +112,14 @@ func (b *Bot) handleCreateVote(parts []string, userID string) error {
 	return b.SendMessage(message)
 }
 
-func (b *Bot) handleVoteForOption(parts []string, userID string) error {
-	const op = "bot.handleVoteForOption"
-
-	if len(parts) < 2 {
-		return b.SendHelp()
-	}
-
-	voteID := parts[0]
-	option := strings.Join(parts[1:], " ")
-
-	err := b.Storage.AddVote(voteID, userID, option)
-	if err != nil {
-		b.myLogger.Error(fmt.Sprintf("%s. Failed to add vote", op), slog.String("error", err.Error()))
-		return b.SendMessage(fmt.Sprintf("Не удалось зарегистрировать ваш голос: %v", err))
-	}
-
-	return b.SendMessage(fmt.Sprintf("Ваш голос за вариант \"%s\" зарегистрирован!", option))
-}
-
-func (b *Bot) handleVote(args []string, userID string) error {
+func (b *Bot) handleVote(args []string) error {
 	if len(args) < 2 {
-		return b.SendMessage("Ошибка: укажите ID голосования и номер варианта\nПример: `vote a8f5acae-be6a-40c0-bab8-c70aaab96383 1`")
+		return b.SendMessage("Ошибка: укажите ID голосования и вариант\nПример: `@system-bot vote <ID голосования> <вариант>`")
 	}
 
 	voteID := args[0]
-	optionNum := args[1]
+	optionNum := strings.Join(args[1:], " ")
 
-	// Проверка существования голосования (запрос к Tarantool)
 	exists, err := b.Storage.VotingExists(voteID)
 	if err != nil {
 		return b.SendMessage("Ошибка при проверке голосования")
@@ -134,28 +128,27 @@ func (b *Bot) handleVote(args []string, userID string) error {
 		return b.SendMessage("Голосование с таким ID не найдено")
 	}
 
-	// Запись голоса
-	err = b.Storage.AddVote(voteID, userID, optionNum)
+	err = b.Storage.AddVote(voteID, optionNum)
 	if err != nil {
-		return b.SendMessage("Ошибка: ваш голос не засчитан")
+		return b.SendMessage(fmt.Sprintf("Ошибка: ваш голос не засчитан. %w", err.Error()))
 	}
 
 	return b.SendMessage(fmt.Sprintf(
-		"✅ Ваш голос за вариант %s учтён!",
-		optionNum))
+		"Ваш голос за вариант %s учтён!\nПросмотреть результаты: @system-bot results %s",
+		optionNum, voteID))
 }
 
 func (b *Bot) handleResults(parts []string) error {
 	const op = "bot.handleResults"
 
-	if len(parts) < 1 {
+	if len(parts) != 1 {
 		return b.SendHelp()
 	}
 
 	voteID := parts[0]
 	vote, err := b.Storage.GetVoting(voteID)
 	if err != nil {
-		b.myLogger.Error(fmt.Sprintf("%s. Failed to get voting results", op), slog.String("error", err.Error()))
+		b.myLogger.Error(fmt.Sprintf("%s. Не удалось получить результаты голосования", op), slog.String("error", err.Error()))
 		return b.SendMessage("Не удалось получить результаты голосования. Проверьте правильность ID.")
 	}
 
@@ -170,7 +163,7 @@ func (b *Bot) handleResults(parts []string) error {
 	if vote.IsClosed {
 		message += "\n\nГолосование завершено."
 	} else {
-		message += fmt.Sprintf("\n\nДля голосования: `/vote %s <номер варианта>`", vote.ID)
+		message += fmt.Sprintf("\n\nДля голосования: `@system-bot vote %s <вариант>`", vote.ID)
 	}
 
 	return b.SendMessage(message)
@@ -186,7 +179,7 @@ func (b *Bot) handleCloseVote(parts []string, userID string) error {
 	voteID := parts[0]
 	err := b.Storage.CloseVoting(voteID, userID)
 	if err != nil {
-		b.myLogger.Error(fmt.Sprintf("%s. Failed to close voting", op), slog.String("error", err.Error()))
+		b.myLogger.Error(fmt.Sprintf("%s. Не удалось завершить голосование", op), slog.String("error", err.Error()))
 		return b.SendMessage(fmt.Sprintf("Не удалось завершить голосование: %v", err))
 	}
 
@@ -203,7 +196,7 @@ func (b *Bot) handleDeleteVote(parts []string, userID string) error {
 	voteID := parts[0]
 	err := b.Storage.DeleteVoting(voteID, userID)
 	if err != nil {
-		b.myLogger.Error(fmt.Sprintf("%s. Failed to delete voting", op), slog.String("error", err.Error()))
+		b.myLogger.Error(fmt.Sprintf("%s. Не удалось удалить голосование", op), slog.String("error", err.Error()))
 		return b.SendMessage(fmt.Sprintf("Не удалось удалить голосование: %v", err))
 	}
 
@@ -222,7 +215,7 @@ func (b *Bot) SendMessage(msg string) error {
 		return fmt.Errorf("не удалось отправить сообщение: %w", err)
 	}
 
-	b.myLogger.Debug("Message sent successfully")
+	b.myLogger.Debug("Сообщение успешно отправлено")
 	return nil
 }
 
@@ -230,21 +223,19 @@ func (b *Bot) SendHelp() error {
 	helpMessage := `**Команды бота для голосования:
 
 	1. Создать голосование:
-	   /vote create "Вопрос" "Вариант 1" "Вариант 2" ...
+	   @system-bot create "Вопрос" "Вариант 1" "Вариант 2" ...
 	
 	2. Проголосовать:
-	   /vote <ID голосования> <номер варианта>
-	   или
-	   /vote vote <ID голосования> <номер варианта>
+	   @system-bot <ID голосования> <вариант>
 	
 	3. Просмотреть результаты:
-	   /vote results <ID голосования>
+	   @system-bot results <ID голосования>
 	
 	4. Завершить голосование (только создатель):
-	   /vote close <ID голосования>
+	   @system-bot close <ID голосования>
 	
 	5. Удалить голосование (только создатель):
-	   /vote delete <ID голосования>`
+	   @system-bot delete <ID голосования>`
 
 	return b.SendMessage(helpMessage)
 }

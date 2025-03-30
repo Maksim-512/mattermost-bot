@@ -22,7 +22,7 @@ func NewTarantoolStorage(addr string) (*TarantoolStorage, error) {
 
 	_, err = conn.Ping()
 	if err != nil {
-		return nil, fmt.Errorf("failed to ping Tarantool: %w", err)
+		return nil, fmt.Errorf("не удалось пингануть Tarantool: %w", err)
 	}
 
 	return &TarantoolStorage{
@@ -55,11 +55,11 @@ func (t *TarantoolStorage) CreateVoting(id, question, createdBy string, options 
 func (t *TarantoolStorage) GetVoting(id string) (*models.Vote, error) {
 	resp, err := t.DB.Select("votings", "primary", 0, 1, tarantool.IterEq, []interface{}{id})
 	if err != nil {
-		return nil, fmt.Errorf("failed to select voting: %w", err)
+		return nil, fmt.Errorf("не удалось выбрать голосование: %w", err)
 	}
 
 	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("voting not found")
+		return nil, fmt.Errorf("голосование не найдено")
 	}
 
 	data := resp.Data[0].([]interface{})
@@ -67,22 +67,13 @@ func (t *TarantoolStorage) GetVoting(id string) (*models.Vote, error) {
 	rawOptions := data[2].(map[interface{}]interface{})
 	options := make(map[string]int)
 	for k, v := range rawOptions {
-		key := fmt.Sprintf("%v", k) // Безопасное преобразование ключа
+		key := fmt.Sprintf("%v", k)
 
-		// Обработка разных числовых типов
 		switch val := v.(type) {
-		case int:
-			options[key] = val
-		case int64:
-			options[key] = int(val)
-		case float64:
-			options[key] = int(val)
-		case uint:
-			options[key] = int(val)
 		case uint64:
 			options[key] = int(val)
 		default:
-			return nil, fmt.Errorf("invalid vote count type: %T", v)
+			return nil, fmt.Errorf("неверный тип подсчета голосов: %T", v)
 		}
 	}
 
@@ -97,10 +88,10 @@ func (t *TarantoolStorage) GetVoting(id string) (*models.Vote, error) {
 	return vote, nil
 }
 
-func (t *TarantoolStorage) AddVote(voteID, userID, option string) error {
+func (t *TarantoolStorage) AddVote(voteID, option string) error {
 	vote, err := t.GetVoting(voteID)
 	if err != nil {
-		return fmt.Errorf("failed to get voting: %w", err)
+		return fmt.Errorf("не удалось добиться голосования: %w", err)
 	}
 
 	if vote.IsClosed {
@@ -117,7 +108,7 @@ func (t *TarantoolStorage) AddVote(voteID, userID, option string) error {
 		[]interface{}{"=", 2, vote.Options},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update voting: %w", err)
+		return fmt.Errorf("не удалось обновить голосования: %w", err)
 	}
 
 	return nil
@@ -126,7 +117,7 @@ func (t *TarantoolStorage) AddVote(voteID, userID, option string) error {
 func (t *TarantoolStorage) CloseVoting(voteID, userID string) error {
 	vote, err := t.GetVoting(voteID)
 	if err != nil {
-		return fmt.Errorf("failed to get voting: %w", err)
+		return fmt.Errorf("не удалось добиться голосования: %w", err)
 	}
 
 	if vote.CreatedBy != userID {
@@ -141,7 +132,7 @@ func (t *TarantoolStorage) CloseVoting(voteID, userID string) error {
 		[]interface{}{"=", 4, true},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to close voting: %w", err)
+		return fmt.Errorf("не удалось завершить голосование: %w", err)
 	}
 
 	return nil
@@ -150,7 +141,7 @@ func (t *TarantoolStorage) CloseVoting(voteID, userID string) error {
 func (t *TarantoolStorage) DeleteVoting(voteID, userID string) error {
 	vote, err := t.GetVoting(voteID)
 	if err != nil {
-		return fmt.Errorf("failed to get voting: %w", err)
+		return fmt.Errorf("не удалось получить голосование: %w", err)
 	}
 
 	if vote.CreatedBy != userID {
@@ -159,7 +150,7 @@ func (t *TarantoolStorage) DeleteVoting(voteID, userID string) error {
 
 	_, err = t.DB.Delete("votings", "primary", []interface{}{voteID})
 	if err != nil {
-		return fmt.Errorf("failed to delete voting: %w", err)
+		return fmt.Errorf("ошибка удаления голосования: %w", err)
 	}
 
 	return nil
@@ -168,7 +159,7 @@ func (t *TarantoolStorage) DeleteVoting(voteID, userID string) error {
 func (t *TarantoolStorage) VotingExists(id string) (bool, error) {
 	resp, err := t.DB.Select("votings", "primary", 0, 1, tarantool.IterEq, []interface{}{id})
 	if err != nil {
-		return false, fmt.Errorf("failed to check voting existence: %w", err)
+		return false, fmt.Errorf("не удалось проверить наличие голосования: %w", err)
 	}
 	return len(resp.Data) > 0, nil
 }

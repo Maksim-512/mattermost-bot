@@ -3,8 +3,10 @@ module my-mattermost-bot
 go 1.23.3
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/mattermost/mattermost/server/public v0.1.10
+	github.com/tarantool/go-tarantool v1.12.2
 )
 
 require (
@@ -14,7 +16,6 @@ require (
 	github.com/francoispqt/gojay v1.2.13 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.7 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
@@ -34,7 +35,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 // indirect
 	github.com/tarantool/go-openssl v0.0.8-0.20230307065445-720eeb389195 // indirect
-	github.com/tarantool/go-tarantool v1.12.2 // indirect
 	github.com/tinylib/msgp v1.2.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
